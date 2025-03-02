@@ -3,6 +3,8 @@ elasticsearch_version: '7.x'
 elasticsearch_package: elasticsearch
 elasticsearch_package_state: present
 
+elasticsearch_cluster_name: my-application
+
 elasticsearch_service_state: started
 elasticsearch_service_enabled: true
 
@@ -12,4 +14,13 @@ elasticsearch_http_port: 9200
 elasticsearch_heap_size_min: 1g
 elasticsearch_heap_size_max: 2g
 
+elasticsearch_cluster_extra_options: ''
+elasticsearch_node_extra_options: ''
+elasticsearch_memory_extra_options: ''
+elasticsearch_network_extra_options: ''
+elasticsearch_discovery_extra_options: ''
+elasticsearch_security_extra_options: ''
 elasticsearch_extra_options: ''
+
+elasticsearch_path_data: /var/lib/elasticsearch
+elasticsearch_path_logs: /var/log/elasticsearch
