@@ -11,6 +11,13 @@
     name: "{{ elasticsearch_package }}"
     state: "{{ elasticsearch_package_state }}"
 
+- name: Change ElasticSearch data directory ownership, group and permissions
+  ansible.builtin.file:
+    path: "{{ elasticsearch_path_data }}" 
+    owner: elasticsearch
+    group: elasticsearch
+    mode: '2750'
+
 - name: Configure Elasticsearch 6 or below.
   template:
     src: "{{ item | basename }}.j2"
