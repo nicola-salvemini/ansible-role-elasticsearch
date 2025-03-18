@@ -1,5 +1,4 @@
 ---
-
 - include_tasks: setup-RedHat.yml
   when: ansible_os_family == 'RedHat'
 
@@ -43,6 +42,19 @@
     - /etc/elasticsearch/jvm.options.d/heap.options
   notify: restart elasticsearch
   when: elasticsearch_version[0] | int >= 7
+
+
+
+- name: include xpack/elasticsearch-xpack.yml
+  include_tasks: xpack/elasticsearch-xpack.yml
+  tags:
+      - xpack
+
+- name: include elasticsearch-ssl.yml
+  include_tasks: elasticsearch-ssl.yml
+  when: elasticsearch_enable_http_ssl or es_enable_transport_ssl
+  tags:
+      - xpack
 
 - name: Force a restart if configuration has changed.
   meta: flush_handlers

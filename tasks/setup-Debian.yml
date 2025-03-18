@@ -4,6 +4,7 @@
     name:
       - apt-transport-https
       - gnupg2
+    update_cache: true
     state: present
 
 - name: Add Elasticsearch apt key.

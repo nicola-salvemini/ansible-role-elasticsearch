@@ -3,6 +3,14 @@ elasticsearch_version: '7.x'
 elasticsearch_package: elasticsearch
 elasticsearch_package_state: present
 
+elasticsearch_user: elasticsearch
+elasticsearch_group: elasticsearch
+elasticsearch_conf_dir: "/etc/elasticsearch"
+elasticsearch_home: "/usr/share/elasticsearch"
+es_api_basic_auth_username: elastic
+elasticsearch_enable_http_ssl: false
+elasticsearch_tls_cert_pass: 'password'
+
 elasticsearch_cluster_name: my-application
 
 elasticsearch_service_state: started
@@ -24,3 +32,13 @@ elasticsearch_extra_options: ''
 
 elasticsearch_path_data: /var/lib/elasticsearch
 elasticsearch_path_logs: /var/log/elasticsearch
+
+elasticsearch_main_cluster_node: node_0
+elasticsearch_enable_ssl: false
+
+elasticsearch_ssl_secret_ca_passphrase: 'supersecretpass'
+
+
+es_delete_unmanaged_file: true
+
+

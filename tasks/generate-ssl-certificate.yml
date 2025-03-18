@@ -1,0 +1,124 @@
+---
+- name: Check whether certificate exists
+  stat:
+    path: /etc/elasticsearch/certificate.pem
+  delegate_to: "{{ elasticsearch_main_cluster_node }}"
+  run_once: true
+  register: certificate_exists
+
+- name: Get certificate information
+  community.crypto.x509_certificate_info:
+    path: /etc/elasticsearch/certificate.pem
+    # for valid_at, invalid_at and valid_in
+    valid_at:
+      point_1: "+3w"
+  delegate_to: "{{ elasticsearch_main_cluster_node }}"
+  run_once: true
+  register: result
+  when: certificate_exists.stat.exists
+
+- name: Generate or regenerate the certificate if it has expired
+  when: not certificate_exists.stat.exists or not result.valid_at.point_1
+  block:
+    - name: Create private key for new certificate on {{ elasticsearch_main_cluster_node }}
+      community.crypto.openssl_privatekey:
+        path: /etc/elasticsearch/certificate.key
+        force: true
+        backup: true
+        owner: elasticsearch
+        group: elasticsearch
+        passphrase: "{{ elasticsearch_tls_cert_pass }}"
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+
+
+    - name: Create certificate signing request (CSR) for CA certificate
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: /etc/elasticsearch/certificate.key
+        common_name: Tweppy CA
+        use_common_name_for_san: false  # since we do not specify SANs, don't use CN as a SAN
+        basic_constraints:
+          - 'CA:TRUE'
+        basic_constraints_critical: true
+        key_usage:
+          - keyCertSign
+        key_usage_critical: true
+        privatekey_passphrase: "{{ elasticsearch_tls_cert_pass }}"
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+      register: ca_csr
+
+    - name: Create self-signed CA certificate from CSR
+      community.crypto.x509_certificate:
+        path: /etc/elasticsearch/ca-certificate.pem
+        csr_content: "{{ ca_csr.csr }}"
+        privatekey_path: /etc/elasticsearch/certificate.key
+        provider: selfsigned
+        privatekey_passphrase: "{{ elasticsearch_tls_cert_pass }}"
+        owner: elasticsearch
+        group: elasticsearch
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+      register: ca_certificate
+
+    - debug:
+        var: ca_certificate
+
+    - name: Create certificate signing request (CSR) for new certificate
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: /etc/elasticsearch/certificate.key
+        privatekey_passphrase: "{{ elasticsearch_tls_cert_pass }}"
+        subject_alt_name_critical: true
+        subject_alt_name:
+          - "DNS:tw-dev01-es-01-vm-01"
+          - "DNS:tw-dev01-es-01-vm-02"
+          - "DNS:tw-dev01-es-01-vm-03"
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+      register: cert_csr
+    
+    - name: Sign certificate with our CA
+      community.crypto.x509_certificate_pipe:
+        # content: "{{ (certificate.content | b64decode) if certificate_exists.stat.exists else omit }}"
+        csr_content: "{{ cert_csr.csr }}"
+        provider: ownca
+        ownca_path: /etc/elasticsearch/ca-certificate.pem
+        ownca_privatekey_path:  /etc/elasticsearch/certificate.key
+        ownca_not_after: +365d  # valid for one year
+        ownca_not_before: "-1d"  # valid since yesterday
+        ownca_privatekey_passphrase: "{{ elasticsearch_tls_cert_pass }}"
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+      register: certificate
+
+    - name: Read existing CA
+      fetch:
+        src: /etc/elasticsearch/ca-certificate.pem
+        dest: /tmp/ca-certificate.pem
+      delegate_to: "{{ elasticsearch_main_cluster_node }}"
+      run_once: true
+      register: f_ca_certificate
+
+    - name: Write certificate file on all nodes
+      copy:
+        dest: /etc/elasticsearch/certificate.pem
+        content: "{{ certificate.certificate }}"
+      # when: certificate is changed
+    # - debug:
+    #     var: certificate_key
+    - name: Write certificate key on all nodes
+      copy:
+        dest: /etc/elasticsearch/ca-certificate.pem
+        src: "{{ f_ca_certificate.dest }}"
+        owner: elasticsearch
+        group: elasticsearch
+        mode: 0600
+  
+    - name: Set keystore password
+      become: yes
+      ansible.builtin.shell: echo "{{ elasticsearch_tls_cert_pass }}" | {{ elasticsearch_home }}/bin/elasticsearch-keystore add -x -f 'xpack.security.{{ item }}.ssl.secure_key_passphrase'
+      # no_log: True
+      # when: elasticsearch_tls_cert_pass and (copy_keystore.changed or (es_same_keystore and copy_truststore.changed))
+      with_items:
+        - http
+        - transport

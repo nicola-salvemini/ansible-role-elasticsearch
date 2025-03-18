@@ -1,0 +1,112 @@
+---
+
+- name: Get CA file stats
+  ansible.builtin.stat:
+    path: "{{ elasticsearch_conf_dir }}/elastic-stack-ca.pem"
+  register: ca_file
+
+- name: Generate a certificate of authority
+  args:
+    chdir: '{{ elasticsearch_conf_dir }}'
+  become: yes
+  ansible.builtin.command: "{{ elasticsearch_home }}/bin/elasticsearch-certutil ca --out {{ elasticsearch_conf_dir }}/elastic-stack-ca.pem --pass '{{ elasticsearch_tls_cert_pass }} --pem'"
+  when:
+    - not ca_file.stat.exists
+
+- name: Get certificate file stats
+  ansible.builtin.stat:
+    path: "{{ elasticsearch_conf_dir }}/elastic-certificates.pem"
+  register: cert_file
+
+- name: Generate a certificate and private key for a node
+  args:
+    chdir: '{{ elasticsearch_conf_dir }}'
+  become: yes
+  ansible.builtin.command: "{{ elasticsearch_home }}/bin/elasticsearch-certutil cert --ca {{ elasticsearch_conf_dir }}/elastic-stack-ca.pem --ca-pass '{{ elasticsearch_tls_cert_pass }}' --out {{ elasticsearch_conf_dir }}/elastic-certificates.pem --pem --pass '{{ elasticsearch_tls_cert_pass }}'"
+  when: not cert_file.stat.exists
+
+- name: Verify if certificate file is changed
+  ansible.builtin.stat:
+    path: "{{ elasticsearch_conf_dir }}/elastic-certificates.pem"
+  register: cert_file_post_command
+
+- set_fact: is_new_ca=true
+- set_fact: is_new_ca = false
+  when:
+   - cert_file_post_command.stat.checksum is defined
+   - cert_file.stat.checksum is defined
+   - cert_file_post_command.stat.checksum == cert_file.stat.checksum
+
+- set_fact: is_new_cert=true
+- set_fact: is_new_cert = false
+  when:
+    - cert_file_post_command.stat.checksum is defined
+    - cert_file.stat.checksum is defined
+    - cert_file_post_command.stat.checksum == cert_file.stat.checksum
+
+- name: Change cert permissions
+  file:
+    path: "{{ elasticsearch_conf_dir }}/elastic-certificates.pem"
+    owner: root
+    group: "{{ elasticsearch_group }}"
+    mode: '0666'
+
+
+- name: Set keystore password
+  become: yes
+  ansible.builtin.shell: echo "{{ elasticsearch_tls_cert_pass }}" | {{ elasticsearch_home }}/bin/elasticsearch-keystore add -x -f 'xpack.security.{{ item }}.ssl.keystore.secure_password'
+  # no_log: True
+  # when: elasticsearch_tls_cert_pass and (copy_keystore.changed or (es_same_keystore and copy_truststore.changed))
+  with_items:
+    - http
+    - transport
+
+- name: Set truststore password
+  become: yes
+  shell: echo "{{ elasticsearch_tls_cert_pass }}" | {{ elasticsearch_home }}/bin/elasticsearch-keystore add -x -f 'xpack.security.{{ item }}.ssl.truststore.secure_password'
+  # no_log: True
+  # when: es_ssl_truststore_password and (copy_truststore.changed or (es_same_keystore and copy_keystore.changed))
+  with_items:
+    - http
+    - transport
+
+# - name: Remove keystore password
+#   become: yes
+#   shell: "{{ elasticsearch_home }}/bin/elasticsearch-keystore remove 'xpack.security.{{ item }}.ssl.keystore.secure_password'"
+#   when: elasticsearch_tls_cert_pass == "" and (copy_keystore.changed or (es_same_keystore and copy_truststore.changed))
+#   ignore_errors: yes
+#   with_items:
+#     - http
+#     - transport
+
+# - name: Remove truststore password
+#   become: yes
+#   shell: "{{ elasticsearch_home }}/bin/elasticsearch-keystore remove 'xpack.security.{{ item }}.ssl.truststore.secure_password'"
+#   when: es_ssl_truststore_password == "" and (copy_truststore.changed or (es_same_keystore and copy_keystore.changed))
+#   ignore_errors: yes
+#   with_items:
+#     - http
+#     - transport
+
+# - name: Set key password
+#   become: yes
+#   shell: echo "{{ es_ssl_key_password }}" | {{ elasticsearch_home }}/bin/elasticsearch-keystore add -x -f 'xpack.security.{{ item }}.ssl.secure_key_passphrase'
+#   no_log: True
+#   when: es_ssl_key_password and copy_certificates.changed
+#   with_items:
+#     - http
+#     - transport
+
+# - name: Remove key password
+#   become: yes
+#   shell: "{{ elasticsearch_home }}/bin/elasticsearch-keystore remove 'xpack.security.{{ item }}.ssl.secure_key_passphrase'"
+#   when: es_ssl_key_password == "" and copy_certificates.changed
+#   ignore_errors: yes
+#   with_items:
+#     - http
+#     - transport
+
+
+# /usr/share/elasticsearch/bin/elasticsearch-certutil cert --ca /etc/elasticsearch/elastic-stack-ca.pem --ca-pass "myVerySecurePassword_tls" --out  "/etc/elasticsearch/elastic-certificates.pem" --pem --pass "myVerySecurePassword_tls"
+
+echo "myVerySecurePassword" | /usr/share/elasticsearch/bin/elasticsearch-keystore add -x 'bootstrap.password'
